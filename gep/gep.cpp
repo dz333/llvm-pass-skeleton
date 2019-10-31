@@ -8,9 +8,9 @@
 using namespace llvm;
 
 namespace {
-  struct SkeletonPass : public FunctionPass {
+  struct GepPass : public FunctionPass {
     static char ID;
-    SkeletonPass() : FunctionPass(ID) {}
+    GepPass() : FunctionPass(ID) {}
 
     virtual bool runOnFunction(Function &F) {
       errs() << "I saw a function called " << F.getName() << "!\n";
@@ -43,7 +43,7 @@ namespace {
   };
 }
 
-char SkeletonPass::ID = 0;
+char GepPass::ID = 0;
 
-// Register the pass so `opt -skeleton` runs it.
-static RegisterPass<SkeletonPass> X("skeleton", "a useless pass");
+// Register the pass so `opt -gepsafe` runs it.
+static RegisterPass<GepPass> X("gepsafe", "check for unsafe uses of getelemptr and insert guards");
