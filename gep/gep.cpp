@@ -13,32 +13,15 @@ namespace {
     GepPass() : FunctionPass(ID) {}
 
     virtual bool runOnFunction(Function &F) {
-      errs() << "I saw a function called " << F.getName() << "!\n";
-      bool changed = false;
-      std::vector<Instruction*> toRemove;
       for (auto &basicblock : F) {
 	for (auto &inst : basicblock) {
-	  BinaryOperator *bop = dyn_cast<BinaryOperator>(&inst);
-	  if (bop) {
-	    Value *lhs = bop->getOperand(0);
-	    Value *rhs = bop->getOperand(1);
-
-	    IRBuilder<> builder(bop);
-	    Value *mul = builder.CreateMul(lhs, rhs);
-
-	    for (auto& use : bop->uses()) {
-	      User* user = use.getUser();
-	      user->setOperand(use.getOperandNo(), mul);
-	    }
-	    changed = true;
-	    toRemove.push_back(&inst);
+	  GetElementPtrInst *gep = dyn_cast<GetElementPtrInst>(&inst);
+	  if (gep) {
+	    errs() << "I saw a getelemptr: " << gep->getAddressSpace() << " \n";
 	  }
 	}
       }
-      for (auto &op : toRemove) {
-	op->eraseFromParent();
-      }
-      return changed;
+      return false;
     }
   };
 }
