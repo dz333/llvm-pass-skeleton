@@ -1,3 +1,5 @@
 *.ll
 *.opt
 *.opt.txt
+*.s
+*.exec
