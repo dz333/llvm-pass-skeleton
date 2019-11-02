@@ -1,7 +1,7 @@
 TESTS := $(shell find . -name "*.c")
 LL := $(TESTS:.c=.ll)
 OPT := $(LL:.ll=.opt)
-EXEC := $(LL:.ll=.o)
+EXEC := $(OPT:.opt=.exec)
 PASSLIB := ../build/gep/libGepPass.so
 OPTLVL := 0
 CLANG_OPT := -O$(OPTLVL)  -Xclang  -disable-O0-optnone -S -emit-llvm
@@ -24,6 +24,6 @@ exec: $(EXEC)
 	gcc -o $@ $<
 
 clean: phony
-	rm -f *.ll *.opt *.opt.txt *~ *.s *.o
+	rm -f *.ll *.opt *.opt.txt *~ *.s *.o *.exec
 
 .PHONY: phony

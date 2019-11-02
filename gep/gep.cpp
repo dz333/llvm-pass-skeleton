@@ -22,7 +22,7 @@ namespace {
 
   Value* insertCondition(IRBuilder<> builder, GetElementPtrInst* gep, Value* idx, Value* minInclusive, Value* maxExclusive) {
     Value* lessMax = builder.CreateICmpSLT(idx, maxExclusive);
-    Value* geMin = builder.CreateICmpSGE(minInclusive, idx);
+    Value* geMin = builder.CreateICmpSGE(idx, minInclusive);
     return builder.CreateAnd(lessMax, geMin);
   }
 
@@ -47,29 +47,41 @@ namespace {
       }
       bool changed = false;
       for (auto &gep : geps) {
-	Type* sourceType = gep->getSourceElementType();
+	Type* srcType = gep->getPointerOperandType();
 	Value* pointerOp = gep->getPointerOperand();
 	IRBuilder<> builder(gep);
 	Value* checkCondition = nullptr;
 	for ( auto &op : gep->indices()) {
 	  //insert instructions to calculate maximum legal offset for source type
-	  printType("\tOp Type: ",op->getType());
-	  if (ArrayType* arrType = dyn_cast<ArrayType>(sourceType)) {
-	    printType("\tArray Source Type: ", arrType);
-	    errs() << "\t\tWith " << arrType->getNumElements() << " elements \n";
+	  if (ArrayType* arrType = dyn_cast<ArrayType>(srcType)) {
+	    errs() << "Op is array of length: " << arrType->getNumElements() << "\n";
 	    //arrType->getNumElements() - 1 is max index
 	    Value* maxIdxEx = ConstantInt::getSigned(op->getType(), arrType->getNumElements());
 	    Value* minIdxIn = ConstantInt::getSigned(op->getType(), 0);
 	    Value* cond = insertCondition(builder, gep, op, minIdxIn, maxIdxEx);
 	    if (checkCondition) {
+	      errs() << "Condition exists" << "\n";
 	      checkCondition = builder.CreateAnd(checkCondition, cond);
 	    } else {
+	      errs() << "Condition doesn't exist" << "\n";
 	      checkCondition = cond;
 	    }
 	    changed = true;
+	    srcType = arrType->getElementType();
 	  }
-	  else if (StructType* structType = dyn_cast<StructType>(sourceType)) {
-	    printType("\tStruct Source Type: ", structType);
+	  else if (StructType* structType = dyn_cast<StructType>(srcType)) {
+	    ConstantInt* offsetVal = dyn_cast<ConstantInt>(op);
+	    errs() << "Found struct op\n";
+	    assert(offsetVal && "Struct offsets should all be i64 constants");
+	    srcType = structType->getElementType(offsetVal->getSExtValue());
+	  } else if (PointerType* ptrType = dyn_cast<PointerType>(srcType)) {
+	    errs() << "Found pointer type\n";
+	    srcType = ptrType->getElementType();
+	  } else if (VectorType* vType = dyn_cast<VectorType>(srcType)) {
+	    errs() << "Found vector type\n";
+	    srcType = vType->getElementType();
+	  } else {
+	    llvm_unreachable("No other types should be used for gep pointers");
 	  }
 	}
 	if (checkCondition) {

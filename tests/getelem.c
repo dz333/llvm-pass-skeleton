@@ -1,3 +1,5 @@
+#include <stdlib.h>
+
 typedef struct example {
   int f1;
   int *f2;
@@ -32,5 +34,7 @@ int main() {
   n.c2[0] = 'b';
   n.c2[1] = 'c';
   char x = doStruct(n);
-  return doStuff(x);
+  x = 11;
+  int y = doStuff(x);
+  exit(0);
 }
