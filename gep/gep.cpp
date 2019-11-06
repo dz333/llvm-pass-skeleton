@@ -37,11 +37,19 @@ namespace {
     GepPass() : FunctionPass(ID) {}
 
     virtual bool runOnFunction(Function &F) {
+      errs() << "fname: " << F.getName() << "\n";
       std::vector<GetElementPtrInst*> geps;
+      std::map<Value*, Value*> allocSizes;
       for (auto &basicblock : F) {
 	for (auto &inst : basicblock) {
 	  if(GetElementPtrInst *gep = dyn_cast<GetElementPtrInst>(&inst)) {
 	    geps.push_back(gep);
+	  } else if (AllocaInst *ai = dyn_cast<AllocaInst>(&inst)) {
+	    printType("Found alloc a of result type: ", ai->getAllocatedType());
+	    errs() << "\t alloc is static size: " << ai->isStaticAlloca() << "\n";
+	    if (!ai->isStaticAlloca()) {
+	      allocSizes[ai] = ai->getArraySize();
+	    }
 	  }
 	}
       }
@@ -60,25 +68,35 @@ namespace {
 	    Value* minIdxIn = ConstantInt::getSigned(op->getType(), 0);
 	    Value* cond = insertCondition(builder, gep, op, minIdxIn, maxIdxEx);
 	    if (checkCondition) {
-	      errs() << "Condition exists" << "\n";
 	      checkCondition = builder.CreateAnd(checkCondition, cond);
 	    } else {
-	      errs() << "Condition doesn't exist" << "\n";
 	      checkCondition = cond;
 	    }
 	    changed = true;
 	    srcType = arrType->getElementType();
-	  }
-	  else if (StructType* structType = dyn_cast<StructType>(srcType)) {
+	  } else if (StructType* structType = dyn_cast<StructType>(srcType)) {
 	    ConstantInt* offsetVal = dyn_cast<ConstantInt>(op);
 	    errs() << "Found struct op\n";
 	    assert(offsetVal && "Struct offsets should all be i64 constants");
 	    srcType = structType->getElementType(offsetVal->getSExtValue());
 	  } else if (PointerType* ptrType = dyn_cast<PointerType>(srcType)) {
-	    errs() << "Found pointer type\n";
+	    assert(op == *gep->indices().begin() && "Should not find pointer ops after first op");
+	    auto size = allocSizes.find(pointerOp);
+	    if (size != allocSizes.end()) {
+	      //insert size check
+	      Value* minIdxIn = ConstantInt::getSigned(op->getType(), 0);
+	      Value* cond = insertCondition(builder, gep, op, minIdxIn, size->second);
+	      if (checkCondition) {
+		checkCondition = builder.CreateAnd(checkCondition, cond);
+	      } else {
+		checkCondition = cond;
+	      }
+	      changed = true;
+	    }
 	    srcType = ptrType->getElementType();
 	  } else if (VectorType* vType = dyn_cast<VectorType>(srcType)) {
 	    errs() << "Found vector type\n";
+	    assert(false && "GEP Safety doesn't check vector refs");
 	    srcType = vType->getElementType();
 	  } else {
 	    llvm_unreachable("No other types should be used for gep pointers");
