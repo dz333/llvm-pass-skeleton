@@ -1,3 +1,5 @@
+#include "llvm/Analysis/AliasAnalysis.h"
+#include "llvm/Analysis/AliasSetTracker.h"
 #include "llvm/Pass.h"
 #include "llvm/Transforms/Utils/BasicBlockUtils.h"
 #include "llvm/IR/Constants.h"
@@ -36,24 +38,55 @@ namespace {
     static char ID;
     GepPass() : FunctionPass(ID) {}
 
+    /*    void getAnalysisUsage(AnalysisUsage &AU) const {
+      AU.setPreservesAll();
+      AU.addRequired<AAResultsWrapperPass>();
+      } */
+ 
     virtual bool runOnFunction(Function &F) {
       errs() << "fname: " << F.getName() << "\n";
       std::vector<GetElementPtrInst*> geps;
       std::map<Value*, Value*> allocSizes;
+      //      auto &AAWP = getAnalysis<AAResultsWrapperPass>();
+      //      auto Tracker = new AliasSetTracker(AAWP.getAAResults());     
       for (auto &basicblock : F) {
 	for (auto &inst : basicblock) {
 	  if(GetElementPtrInst *gep = dyn_cast<GetElementPtrInst>(&inst)) {
 	    geps.push_back(gep);
 	  } else if (AllocaInst *ai = dyn_cast<AllocaInst>(&inst)) {
-	    printType("Found alloc a of result type: ", ai->getAllocatedType());
-	    errs() << "\t alloc is static size: " << ai->isStaticAlloca() << "\n";
+	    //	    Tracker->add(&*ai);
+	    //	    printType("Found alloc a of result type: ", ai->getAllocatedType());
+	    //	    errs() << "\t alloc is static size: " << ai->isStaticAlloca() << "\n";
 	    if (!ai->isStaticAlloca()) {
 	      allocSizes[ai] = ai->getArraySize();
 	    }
+	  } else if (CallInst *call = dyn_cast<CallInst>(&inst)) {
+	    auto f = call->getCalledFunction();
+	    if (f) {
+	      auto fname = f->getName();
+	      if (fname.compare("malloc") == 0) {
+		allocSizes[call] = call->getArgOperand(0);
+		//		Tracker->add(&*call);
+	      }
+	    }
+	  } else if (BitCastInst *bc = dyn_cast<BitCastInst>(&inst)) {	    
+	    if (bc->getNumOperands() == 1) {
+	      auto size = allocSizes.find(bc->getOperand(0));
+	      if (size != allocSizes.end()) {
+		//		Tracker->add(&*bc);
+		allocSizes[bc] = size->second;
+	      }
+	    } 
 	  }
 	}
       }
+      //      Tracker->print(errs());
+      //      delete Tracker;
       bool changed = false;
+      int changedCount = 0;
+      int notChangedCount = 0;
+      int skipped = 0;
+      int checked = 0;
       for (auto &gep : geps) {
 	Type* srcType = gep->getPointerOperandType();
 	Value* pointerOp = gep->getPointerOperand();
@@ -62,8 +95,6 @@ namespace {
 	for ( auto &op : gep->indices()) {
 	  //insert instructions to calculate maximum legal offset for source type
 	  if (ArrayType* arrType = dyn_cast<ArrayType>(srcType)) {
-	    errs() << "Op is array of length: " << arrType->getNumElements() << "\n";
-	    //arrType->getNumElements() - 1 is max index
 	    Value* maxIdxEx = ConstantInt::getSigned(op->getType(), arrType->getNumElements());
 	    Value* minIdxIn = ConstantInt::getSigned(op->getType(), 0);
 	    Value* cond = insertCondition(builder, gep, op, minIdxIn, maxIdxEx);
@@ -72,18 +103,15 @@ namespace {
 	    } else {
 	      checkCondition = cond;
 	    }
-	    changed = true;
 	    srcType = arrType->getElementType();
 	  } else if (StructType* structType = dyn_cast<StructType>(srcType)) {
 	    ConstantInt* offsetVal = dyn_cast<ConstantInt>(op);
-	    errs() << "Found struct op\n";
 	    assert(offsetVal && "Struct offsets should all be i64 constants");
 	    srcType = structType->getElementType(offsetVal->getSExtValue());
 	  } else if (PointerType* ptrType = dyn_cast<PointerType>(srcType)) {
 	    assert(op == *gep->indices().begin() && "Should not find pointer ops after first op");
 	    auto size = allocSizes.find(pointerOp);
 	    if (size != allocSizes.end()) {
-	      //insert size check
 	      Value* minIdxIn = ConstantInt::getSigned(op->getType(), 0);
 	      Value* cond = insertCondition(builder, gep, op, minIdxIn, size->second);
 	      if (checkCondition) {
@@ -91,11 +119,13 @@ namespace {
 	      } else {
 		checkCondition = cond;
 	      }
-	      changed = true;
+	      checked += 1;
+	    } else {
+	      skipped += 1;
 	    }
 	    srcType = ptrType->getElementType();
 	  } else if (VectorType* vType = dyn_cast<VectorType>(srcType)) {
-	    errs() << "Found vector type\n";
+	    //	    errs() << "Found vector type\n";
 	    assert(false && "GEP Safety doesn't check vector refs");
 	    srcType = vType->getElementType();
 	  } else {
@@ -104,8 +134,16 @@ namespace {
 	}
 	if (checkCondition) {
 	  insertExitBranch(builder, gep, checkCondition);
+	  changed = true;
+	  changedCount += 1;
+	} else {
+	  notChangedCount += 1;
 	}
       }
+      errs() << "Pointers Skipped: " << skipped << "\n";
+      errs() << "Pointers Checked: " << checked << "\n";
+      errs() << "Geps Modified: " << changedCount << "\n";
+      errs() << "Geps Skipped: " << notChangedCount << "\n";
       return changed;
     }
   };
