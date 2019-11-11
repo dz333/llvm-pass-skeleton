@@ -57,9 +57,7 @@ namespace {
 	    //	    Tracker->add(&*ai);
 	    //	    printType("Found alloc a of result type: ", ai->getAllocatedType());
 	    //	    errs() << "\t alloc is static size: " << ai->isStaticAlloca() << "\n";
-	    if (!ai->isStaticAlloca()) {
-	      allocSizes[ai] = ai->getArraySize();
-	    }
+	    allocSizes[ai] = ai->getArraySize();
 	  } else if (CallInst *call = dyn_cast<CallInst>(&inst)) {
 	    auto f = call->getCalledFunction();
 	    if (f) {
@@ -74,7 +72,8 @@ namespace {
 	      auto size = allocSizes.find(bc->getOperand(0));
 	      if (size != allocSizes.end()) {
 		//		Tracker->add(&*bc);
-		allocSizes[bc] = size->second;
+		//allocSizes[bc] = size->second;
+		//TODO convert size appropriately
 	      }
 	    } 
 	  }
