@@ -34,6 +34,30 @@ namespace {
     SplitBlockAndInsertIfThen(notsafe, gep, true);
   }
 
+  Value* convertSizeBetweenTypes(IRBuilder<> builder, Type* ptr1, Type* ptr2, Value* ptr1Size, LLVMContext &C) {
+    if (PointerType *p1t = dyn_cast<PointerType>(ptr1)) {
+      if (PointerType *p2t = dyn_cast<PointerType>(ptr2)) {
+	auto elemFrom = p1t->getElementType();
+	auto elemTo = p2t->getElementType();
+	int fromSize = elemFrom->getPrimitiveSizeInBits();
+	int toSize = elemTo->getPrimitiveSizeInBits();
+	if (!fromSize || !toSize) {
+	  return nullptr;
+	} else {
+	  errs() << "From Size = " << fromSize << "\n";
+	  errs() << "To Size = " << toSize << "\n";
+	  Value* fromVal = ConstantInt::get(IntegerType::get(C, 64), fromSize);
+	  Value* toVal = ConstantInt::get(IntegerType::get(C, 64), toSize);
+	  auto mul = builder.CreateMul(ptr1Size, fromVal);
+	  return builder.CreateUDiv(mul, toVal);
+	  //	  auto mul = BinaryOperator::Create(Instruction::BinaryOps::Mul, ptr1Size, fromVal);
+	  //	  return BinaryOperator::Create(Instruction::BinaryOps::UDiv, mul, toVal);
+	}
+      }
+    }
+    return nullptr;
+  }
+
   struct GepPass : public FunctionPass {
     static char ID;
     GepPass() : FunctionPass(ID) {}
@@ -47,16 +71,11 @@ namespace {
       errs() << "fname: " << F.getName() << "\n";
       std::vector<GetElementPtrInst*> geps;
       std::map<Value*, Value*> allocSizes;
-      //      auto &AAWP = getAnalysis<AAResultsWrapperPass>();
-      //      auto Tracker = new AliasSetTracker(AAWP.getAAResults());     
       for (auto &basicblock : F) {
 	for (auto &inst : basicblock) {
 	  if(GetElementPtrInst *gep = dyn_cast<GetElementPtrInst>(&inst)) {
 	    geps.push_back(gep);
 	  } else if (AllocaInst *ai = dyn_cast<AllocaInst>(&inst)) {
-	    //	    Tracker->add(&*ai);
-	    //	    printType("Found alloc a of result type: ", ai->getAllocatedType());
-	    //	    errs() << "\t alloc is static size: " << ai->isStaticAlloca() << "\n";
 	    allocSizes[ai] = ai->getArraySize();
 	  } else if (CallInst *call = dyn_cast<CallInst>(&inst)) {
 	    auto f = call->getCalledFunction();
@@ -64,23 +83,23 @@ namespace {
 	      auto fname = f->getName();
 	      if (fname.compare("malloc") == 0) {
 		allocSizes[call] = call->getArgOperand(0);
-		//		Tracker->add(&*call);
 	      }
 	    }
 	  } else if (BitCastInst *bc = dyn_cast<BitCastInst>(&inst)) {	    
 	    if (bc->getNumOperands() == 1) {
 	      auto size = allocSizes.find(bc->getOperand(0));
 	      if (size != allocSizes.end()) {
-		//		Tracker->add(&*bc);
-		//allocSizes[bc] = size->second;
-		//TODO convert size appropriately
+		IRBuilder<> bcBuild(bc);
+		auto newSize = convertSizeBetweenTypes(bcBuild,
+				size->first->getType(), bc->getType(), size->second, F.getContext());
+		if (newSize) {
+		  allocSizes[bc] = newSize;
+		}
 	      }
 	    } 
 	  }
 	}
       }
-      //      Tracker->print(errs());
-      //      delete Tracker;
       bool changed = false;
       int changedCount = 0;
       int notChangedCount = 0;

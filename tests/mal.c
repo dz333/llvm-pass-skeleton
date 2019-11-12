@@ -1,14 +1,21 @@
 #include <stdlib.h>
 
-int* other(int size) {
-  int *z = malloc(size * sizeof(int));
-  for (int i = 0; i < size; i++) {
-    z[i] = 4;
+void other(int* z, int x) {
+  int sum = 0;
+  for (int i = 0; i < x; i++) {
+    sum += i;
+    z[i] = sum;
   }
-  return z;
 }
 
-int main() {
+int main(int argc, char *argv[]) {
   int y = 10;
-  return other(y)[11];
+  int *z = malloc(argc * sizeof(int));
+  other(z, argc);
+  if (argc % 17 == 0) {
+    z[argc-1] = 4;
+  } else {
+    z[argc-1] = 10;
+  }
+  return z[2] + z[argc-1];
 }
